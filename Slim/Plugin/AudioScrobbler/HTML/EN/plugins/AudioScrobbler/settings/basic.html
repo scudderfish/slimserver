@@ -12,6 +12,13 @@
 		<input type="text" class="stdedit" name="pref_username" id="username" value="" size="20">
 		&nbsp;&nbsp;
 		<input type="password" class="stdedit" name="pref_password" id="password" value="" size="20">
+		&nbsp;&nbsp;
+		<select name="pref_service" id="service" value="" >
+			<option value="lastfm">Last.fm</option>
+			<option value="listenbrainz">Listenbrainz.org</option>
+		</select>
+
+		
 	[% END %]
 
 	[% WRAPPER setting title="SETUP_PLUGIN_AUDIOSCROBBLER_ENABLE_SCROBBLING" desc="SETUP_PLUGIN_AUDIOSCROBBLER_ENABLE_SCROBBLING_DESC" %]
