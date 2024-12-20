@@ -46,6 +46,7 @@ use Slim::Utils::Timers;
 
 use Digest::MD5 qw(md5_hex);
 use URI::Escape qw(uri_escape_utf8 uri_unescape);
+use Data::Dumper;
 
 my $prefs = preferences('plugin.audioscrobbler');
 
@@ -58,6 +59,21 @@ my $log = Slim::Utils::Log->addLogCategory( {
 use constant HANDSHAKE_URL => 'http://post.audioscrobbler.com/';
 use constant CLIENT_ID     => 'ss7';
 use constant CLIENT_VER    => 'sc' . $::VERSION;
+
+use constant SERVICES => {
+	"lastfm" =>{
+		HANDSHAKE_URL => 'http://post.audioscrobbler.com/',
+		CLIENT_ID     => 'ss7',
+		CLIENT_VER    => 'sc' . $::VERSION
+	},
+	"listenbrainz" => {
+		HANDSHAKE_URL => 'http://138.201.169.196',
+		CLIENT_ID     => 'ss7',
+		CLIENT_VER    => 'sc' . $::VERSION
+
+	},
+	
+}; 
 
 my $loveHandler;
 
@@ -268,7 +284,8 @@ sub clearSession {
 
 sub handshake {
 	my $params = shift || {};
-
+	my $service=$params->{service};
+	$log->error(Dumper($params,$service));
 	if ( my $client = $params->{client} ) {
 		clearSession( $client );
 
@@ -281,6 +298,7 @@ sub handshake {
 			for my $account ( @{$accounts} ) {
 				if ( $account->{username} eq $params->{username} ) {
 					$params->{password} = $account->{password};
+					$params->{service} = $account->{service};
 					last;
 				}
 			}
@@ -288,30 +306,86 @@ sub handshake {
 	}
 
 	my $time = time();
+	$log->error("service is $service");
+	if($service eq 'lastfm') {
+		my $url = HANDSHAKE_URL
+			. '?hs=true&p=1.2'
+			. '&c=' . CLIENT_ID
+			. '&v=' . CLIENT_VER
+			. '&u=' . $params->{username}
+			. '&t=' . $time
+			. '&a=' . md5_hex( $params->{password} . $time );
 
-	my $url = HANDSHAKE_URL
-		. '?hs=true&p=1.2'
-		. '&c=' . CLIENT_ID
-		. '&v=' . CLIENT_VER
-		. '&u=' . $params->{username}
-		. '&t=' . $time
-		. '&a=' . md5_hex( $params->{password} . $time );
+		my $http = Slim::Networking::SimpleAsyncHTTP->new(
+			\&_lastFMhandshakeOK,
+			\&_lastFMhandshakeError,
+			{
+				params  => $params,
+				timeout => 30,
+			},
+		);
+		$log->error("Doing LFM");
+		main::DEBUGLOG && $log->debug("Handshaking with Last.fm: $url");
 
+		$http->get( $url );
+	} elsif ($service eq 'listenbrainz') {
+
+		my $url="http://api.listenbrainz.org/1/validate-token";
+	
 	my $http = Slim::Networking::SimpleAsyncHTTP->new(
-		\&_handshakeOK,
-		\&_handshakeError,
-		{
-			params  => $params,
-			timeout => 30,
-		},
-	);
+			\&_listenbrainzhandshakeOK,
+			\&_listenbrainzhandshakeError,
+			{
+				params  => $params,
+				timeout => 30,
+			},
+		);
+		$log->error("params are");
+		$log->error(Dumper($params));
+		
+		$log->error("Doing LB");
 
-	main::DEBUGLOG && $log->debug("Handshaking with Last.fm: $url");
-
-	$http->get( $url );
+		$http->get( $url,'Authorization'=>"Token ".$params->{password} );
+	}
 }
 
-sub _handshakeOK {
+sub _listenbrainzhandshakeOK{
+	$log->error("LB OK");
+	my $http   = shift;
+	my $params = $http->params('params');
+	my $client = $params->{client};
+
+	my $content = $http->content;
+	#$log->error(Dumper($http));
+	if ( $client ) {
+		# $client->master->pluginData( session_id      => $session_id );
+		$client->master->pluginData( now_playing_url => "http://api.listenbrainz.org/1/submit-listens" );
+		$client->master->pluginData( submit_url      => "http://api.listenbrainz.org/1/submit-listens" );
+		$client->master->pluginData( handshake_delay => 0 );
+
+		# If there are any tracks pending in the queue, send them now
+		my $queue = getQueue($client);
+
+		if ( scalar @{$queue} ) {
+			submitScrobble( $client );
+		}
+	}
+	if ( $params->{cb} ) {
+		$params->{cb}->();
+	}
+}
+sub _listenbrainzhandshakeError{
+	my $http   = shift;
+	my $error  = $http->error;
+	my $params = $http->params('params');
+	my $client = $params->{client};
+
+	$log->error("Error handshaking with LB: $error");
+	$log->error(Dumper($http));
+}
+
+
+sub _lastFMhandshakeOK {
 	my $http   = shift;
 	my $params = $http->params('params');
 	my $client = $params->{client};
@@ -358,13 +432,13 @@ sub _handshakeOK {
 		}
 	}
 
-	if ( $error ) {
-		$log->error($error);
-		if ( $params->{ecb} ) {
-			$params->{ecb}->($error);
-		}
-	}
-	else {
+	 if ( $error ) {
+	 	$log->error($error);
+	 	if ( $params->{ecb} ) {
+	 		$params->{ecb}->($error);
+	 	}
+	 }
+	 else {
 		# Callback to success function
 		if ( $params->{cb} ) {
 			$params->{cb}->();
@@ -372,7 +446,7 @@ sub _handshakeOK {
 	}
 }
 
-sub _handshakeError {
+sub _lastFMhandshakeError {
 	my $http   = shift;
 	my $error  = $http->error;
 	my $params = $http->params('params');

@@ -28,10 +28,12 @@ sub page {
 sub prefs {
 	return ( $prefs, qw(accounts enable_scrobbling include_radio ignoreTitles ignoreGenres ignoreArtists ignoreAlbums) );
 }
-
+use Data::Dumper;
 sub handler {
 	my ($class, $client, $params, $callback, @args) = @_;
-
+	# $log->error("In handler-2-------------------------------------------");
+	# $log->error(Dumper($params));
+	# $log->error("In handler-3-------------------------------------------");
 	if ( $params->{saveSettings} ) {
 
 		# Save existing accounts
@@ -61,15 +63,17 @@ sub handler {
 
 		# Save new account
 		if ( $params->{pref_password} ) {
-			$params->{pref_password} = md5_hex( $params->{pref_password} );
+			$params->{pref_password} = $params->{pref_service} eq 'lastfm' ? md5_hex( $params->{pref_password} ) : $params->{pref_password};
 		}
 
 		# If the user added a username/password, we need to verify their info
-		if ( $params->{pref_username} && $params->{pref_password} ) {
+		if ( $params->{pref_username} && $params->{pref_password} && $params->{pref_service} ) {
 			Slim::Plugin::AudioScrobbler::Plugin::handshake( {
 				username => $params->{pref_username},
 				password => $params->{pref_password},
+				service => $params->{pref_service},
 				pref_accounts => $params->{pref_accounts},
+
 
 				cb       => sub {
 					# Callback for OK handshake response
@@ -77,11 +81,12 @@ sub handler {
 					push @{ $params->{pref_accounts} }, {
 						username => $params->{pref_username},
 						password => $params->{pref_password},
+						service => $params->{pref_service}
 					};
 
-					if ( main::DEBUGLOG && $log->is_debug ) {
-						$log->debug( "Saving Audioscrobbler accounts: " . Data::Dump::dump( $params->{pref_accounts} ) );
-					}
+					# if ( main::DEBUGLOG && $log->is_debug ) {
+						$log->error( "Saving Audioscrobbler accounts: " . Data::Dump::dump( $params->{pref_accounts} ) );
+					#}
 
 					my $msg  = Slim::Utils::Strings::string('PLUGIN_AUDIOSCROBBLER_VALID_LOGIN');
 					my $body = $class->SUPER::handler( $client, $params );
@@ -100,9 +105,9 @@ sub handler {
 					# Callback for any errors
 					my $error = shift;
 
-					if ( main::DEBUGLOG && $log->is_debug ) {
+					#if ( main::DEBUGLOG && $log->is_debug ) {
 						$log->debug( "Error saving Audioscrobbler account: " . Data::Dump::dump( $error ) );
-					}
+					#}
 
 					$error = Slim::Utils::Strings::string( 'SETUP_PLUGIN_AUDIOSCROBBLER_LOGIN_ERROR', $error );
 

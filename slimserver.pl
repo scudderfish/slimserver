@@ -395,6 +395,7 @@ sub init {
 		$sqlHelperClass->init();
 	}
 
+	print 'fucksocks';
 	main::INFOLOG && $log->info("Async DNS init...");
 	Slim::Networking::Async::DNS->init;
 
